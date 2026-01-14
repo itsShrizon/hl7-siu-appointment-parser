@@ -2,9 +2,11 @@
 HL7 SIU Parser - Core Parser
 
 Orchestrates parsing of HL7 SIU S12 messages.
-Handles message splitting, validation, and segment extraction.
+Designed for fault tolerance in real-world HL7 feeds with mixed message types.
 """
-from typing import List, Dict, Iterator, Any, Optional
+import sys
+from typing import List, Dict, Any, Optional
+from dataclasses import dataclass, field
 from .models import Appointment
 from .exceptions import (
     HL7ParseError,
@@ -15,19 +17,51 @@ from .exceptions import (
 from .segments import parse_msh, parse_sch, parse_pid, parse_pv1, parse_ail
 
 
+@dataclass
+class ParseResult:
+    """
+    Result of parsing a batch of messages.
+    
+    Provides clear separation between successful parses, 
+    skipped messages, and actual errors.
+    """
+    appointments: List[Appointment] = field(default_factory=list)
+    skipped: List[Dict[str, Any]] = field(default_factory=list)  # Non-SIU messages
+    errors: List[Dict[str, Any]] = field(default_factory=list)   # Parse failures
+    
+    @property
+    def total_processed(self) -> int:
+        return len(self.appointments)
+    
+    @property
+    def total_skipped(self) -> int:
+        return len(self.skipped)
+    
+    @property
+    def total_errors(self) -> int:
+        return len(self.errors)
+
+
 class HL7Parser:
     """
     Parser for HL7 SIU S12 (Schedule Information Unsolicited) messages.
     
-    This parser:
-    - Validates message type before parsing
-    - Handles missing/malformed segments gracefully
-    - Supports multiple messages per file
-    - Uses dynamic field separators from MSH
+    Designed for production use with mixed HL7 feeds:
+    - Filters SIU^S12 messages from mixed feeds (ADT, ORU, etc.)
+    - Continues processing after encountering bad messages
+    - Provides detailed reporting of skipped/failed messages
     
     Example:
         parser = HL7Parser()
-        appointment = parser.parse_message(hl7_content)
+        
+        # Simple: Get only SIU appointments, skip others
+        appointments = parser.parse_messages(content)
+        
+        # Detailed: See what was skipped/failed
+        result = parser.parse_messages_with_report(content)
+        print(f"Parsed: {result.total_processed}")
+        print(f"Skipped: {result.total_skipped} non-SIU messages")
+        print(f"Errors: {result.total_errors}")
     """
 
     def __init__(self, strict_mode: bool = False):
@@ -44,12 +78,6 @@ class HL7Parser:
         """
         Parse a single HL7 SIU S12 message into an Appointment.
         
-        The parsing follows this order:
-        1. Validate input is not empty
-        2. Find and parse MSH segment (required)
-        3. Validate message type is SIU^S12
-        4. Parse remaining segments with MSH-defined separators
-        
         Args:
             raw_message: Raw HL7 message string
             
@@ -61,7 +89,7 @@ class HL7Parser:
             MissingSegmentError: If required segment is missing
             InvalidMessageTypeError: If not an SIU^S12 message
         """
-        # Step 1: Validate input
+        # Validate input
         if not raw_message:
             raise EmptyMessageError()
         
@@ -69,34 +97,31 @@ class HL7Parser:
         if not cleaned_message:
             raise EmptyMessageError()
         
-        # Step 2: Normalize line endings and extract lines
+        # Extract lines
         lines = self._split_into_lines(cleaned_message)
         if not lines:
             raise EmptyMessageError()
         
-        # Step 3: Find MSH segment (must be present)
+        # Find and parse MSH segment
         msh_line = self._find_segment_line(lines, "MSH")
         if msh_line is None:
             raise MissingSegmentError("MSH", required=True)
         
-        # Step 4: Parse MSH to get separators and validate message type
+        # Parse MSH to get metadata
         metadata = parse_msh(msh_line)
         
+        # Validate message type
         if not metadata.is_siu_s12():
             actual_type = metadata.message_type if metadata.message_type else "UNKNOWN"
             raise InvalidMessageTypeError(actual_type=actual_type)
         
-        # Step 5: Now parse other segments with validated separators
+        # Parse other segments with MSH-defined separators
         field_sep = metadata.field_separator
         comp_sep = metadata.component_separator
         
-        # Parse SCH segment (appointment data)
+        # Parse segments
         sch_data = self._parse_sch_segment(lines, field_sep, comp_sep)
-        
-        # Parse PID segment (patient data)
         patient = self._parse_pid_segment(lines, field_sep, comp_sep)
-        
-        # Parse PV1 segment (provider data)
         provider = self._parse_pv1_segment(lines, field_sep, comp_sep)
         
         # Get location (from SCH, fallback to AIL)
@@ -104,7 +129,6 @@ class HL7Parser:
         if not location:
             location = self._parse_ail_location(lines, field_sep, comp_sep)
         
-        # Build and return the Appointment
         return Appointment(
             appointment_id=sch_data.get("appointment_id"),
             appointment_datetime=sch_data.get("appointment_datetime"),
@@ -114,47 +138,227 @@ class HL7Parser:
             reason=sch_data.get("reason"),
         )
 
-    def _split_into_lines(self, content: str) -> List[str]:
+    def parse_messages(self, content: str) -> List[Appointment]:
         """
-        Split content into lines, handling various line endings.
+        Parse messages from content, filtering for SIU^S12 only.
         
-        HL7 messages can use CR, LF, or CRLF as line endings.
-        """
-        # Normalize all line endings to \n
-        normalized = content.replace("\r\n", "\n").replace("\r", "\n")
+        This is the fault-tolerant method for production use:
+        - Skips non-SIU messages (ADT, ORU, etc.) silently
+        - Skips malformed messages silently
+        - Returns only successfully parsed SIU appointments
         
-        # Split and filter empty lines
-        lines = []
-        for line in normalized.split("\n"):
-            stripped = line.strip()
-            if stripped:
-                lines.append(stripped)
-        
-        return lines
-
-    def _find_segment_line(self, lines: List[str], segment_type: str) -> Optional[str]:
-        """
-        Find the first line that matches a segment type.
+        For detailed error reporting, use parse_messages_with_report().
         
         Args:
-            lines: List of message lines
-            segment_type: 3-character segment type (e.g., "MSH", "PID")
+            content: Raw content that may contain multiple HL7 messages
             
         Returns:
-            The matching line, or None if not found
+            List of successfully parsed Appointment models
         """
+        result = self.parse_messages_with_report(content)
+        return result.appointments
+
+    def parse_messages_with_report(self, content: str) -> ParseResult:
+        """
+        Parse messages with detailed reporting of what happened.
+        
+        Processes ALL messages in the feed and categorizes them:
+        - appointments: Successfully parsed SIU^S12 messages
+        - skipped: Non-SIU messages (ADT, ORU, etc.) - not errors, just different types
+        - errors: SIU messages that failed to parse (malformed data)
+        
+        Args:
+            content: Raw content that may contain multiple HL7 messages
+            
+        Returns:
+            ParseResult with appointments, skipped messages, and errors
+        """
+        result = ParseResult()
+        messages = self.split_messages(content)
+        
+        for index, message in enumerate(messages):
+            message_number = index + 1 
+            
+            try:
+                appointment = self.parse_message(message)
+                result.appointments.append(appointment)
+                
+            except InvalidMessageTypeError as error:
+                # This is NOT an error - it's a non-SIU message that should be skipped
+                result.skipped.append({
+                    "message_number": message_number,
+                    "reason": str(error),
+                    "message_type": error.actual_type,
+                })
+                
+            except EmptyMessageError:
+                # Empty messages are skipped, not errors
+                result.skipped.append({
+                    "message_number": message_number,
+                    "reason": "Empty message",
+                    "message_type": None,
+                })
+                
+            except HL7ParseError as error:
+                # Actual parsing errors for SIU messages
+                result.errors.append({
+                    "message_number": message_number,
+                    "error": str(error),
+                    "error_type": type(error).__name__,
+                })
+                
+            except Exception as error:
+                # Unexpected errors - still don't crash, but report
+                result.errors.append({
+                    "message_number": message_number,
+                    "error": f"Unexpected error: {error}",
+                    "error_type": type(error).__name__,
+                })
+        
+        return result
+
+    def parse_messages_strict(self, content: str) -> List[Appointment]:
+        """
+        Parse messages with strict error handling (fails on first error).
+        
+        Use this only when you KNOW the file contains only valid SIU messages.
+        For mixed feeds, use parse_messages() instead.
+        
+        Raises:
+            HL7ParseError: On first parsing error
+        """
+        messages = self.split_messages(content)
+        appointments = []
+        
+        for index, message in enumerate(messages):
+            message_number = index + 1
+            try:
+                appointment = self.parse_message(message)
+                appointments.append(appointment)
+            except HL7ParseError as error:
+                raise type(error)(f"Message {message_number}: {error}") from error
+        
+        return appointments
+
+    def split_messages(self, content: str) -> List[str]:
+        """
+        Split content into individual HL7 messages using proper delimiters.
+        
+        """
+        if not content:
+            return []
+        
+        # Normalize line endings to \n
+        normalized = content.replace("\r\n", "\n").replace("\r", "\n")
+        
+        messages = []
+        current_buffer = []
+        in_message = False
+        line_number = 0
+        
+        for line in normalized.split("\n"):
+            line_number += 1
+            line = line.strip()
+            
+            if not line:
+                continue  # Skip empty lines
+            
+            # Check if line starts with "MSH" 
+            if line.startswith("MSH"):
+                # Validate it's actually a proper MSH segment
+                if self._is_valid_msh_start(line):
+                    # Save previous message if exists
+                    if current_buffer:
+                        messages.append("\n".join(current_buffer))
+                    
+                    # Start new message
+                    current_buffer = [line]
+                    in_message = True
+                else:
+                    # Line starts with "MSH" but is malformed
+                    print(f"Warning: Line {line_number} looks like MSH but is malformed: {line[:50]}...", 
+                          file=sys.stderr)
+                    
+                    # Should we add it to current message or skip it?
+                    if in_message:
+                        # Treat as data in current message (might be field content)
+                        current_buffer.append(line)
+                    else:
+                        # No message started yet, skip this garbage
+                        print(f"  -> Skipping line (no valid message started)", file=sys.stderr)
+                        continue
+            
+            elif in_message:
+                # Add to current message
+                current_buffer.append(line)
+            else:
+                # Data before first valid MSH - this is garbage
+                print(f"Warning: Line {line_number} found before first valid MSH segment: {line[:50]}...",
+                      file=sys.stderr)
+                print(f"  -> Skipping orphaned data", file=sys.stderr)
+        
+        # Don't forget the last message
+        if current_buffer:
+            messages.append("\n".join(current_buffer))
+        
+        return messages
+
+    def _is_valid_msh_start(self, line: str) -> bool:
+        """
+        Validate that a line is actually an MSH segment, not just contains "MSH".
+        
+        Valid MSH structure:
+        - Starts with exactly "MSH"
+        - Followed by field separator (usually |)
+        - Then encoding characters (usually ^~\&)
+        - Minimum length check
+        
+        Returns:
+            True if valid MSH segment, False otherwise
+        """
+        if not line.startswith("MSH"):
+            return False
+        
+        # Minimum: "MSH|^~\&" = 8 characters
+        if len(line) < 8:
+            return False
+        
+        # Character at index 3 should be the field separator
+        field_sep = line[3]
+        
+        # Field separator must be printable, non-alphanumeric, non-whitespace
+        if field_sep.isalnum() or field_sep.isspace():
+            return False
+        
+        # Characters 4-7 should be encoding characters (^~\&)
+        # We just check they exist and aren't whitespace
+        encoding_chars = line[4:8]
+        if len(encoding_chars) < 4:
+            return False
+        
+        if any(c.isspace() for c in encoding_chars):
+            return False
+        
+        return True
+
+    # =========================================================================
+    # Private helper methods
+    # =========================================================================
+
+    def _split_into_lines(self, content: str) -> List[str]:
+        """Split content into lines, handling various line endings."""
+        normalized = content.replace("\r\n", "\n").replace("\r", "\n")
+        return [line.strip() for line in normalized.split("\n") if line.strip()]
+
+    def _find_segment_line(self, lines: List[str], segment_type: str) -> Optional[str]:
+        """Find the first line that matches a segment type."""
         for line in lines:
-            if len(line) >= 3:
-                line_segment_type = line[:3].upper()
-                if line_segment_type == segment_type.upper():
-                    return line
+            if len(line) >= 3 and line[:3].upper() == segment_type.upper():
+                return line
         return None
 
     def _parse_sch_segment(
-        self, 
-        lines: List[str], 
-        field_sep: str, 
-        comp_sep: str
+        self, lines: List[str], field_sep: str, comp_sep: str
     ) -> Dict[str, Any]:
         """Parse SCH segment if present."""
         sch_line = self._find_segment_line(lines, "SCH")
@@ -165,14 +369,10 @@ class HL7Parser:
         if self.strict_mode:
             raise MissingSegmentError("SCH", required=True)
         
-        # Return empty dict if not in strict mode
         return {}
 
     def _parse_pid_segment(
-        self, 
-        lines: List[str], 
-        field_sep: str, 
-        comp_sep: str
+        self, lines: List[str], field_sep: str, comp_sep: str
     ) -> Optional["Patient"]:
         """Parse PID segment if present."""
         pid_line = self._find_segment_line(lines, "PID")
@@ -186,10 +386,7 @@ class HL7Parser:
         return None
 
     def _parse_pv1_segment(
-        self, 
-        lines: List[str], 
-        field_sep: str, 
-        comp_sep: str
+        self, lines: List[str], field_sep: str, comp_sep: str
     ) -> Optional["Provider"]:
         """Parse PV1 segment if present."""
         pv1_line = self._find_segment_line(lines, "PV1")
@@ -197,14 +394,10 @@ class HL7Parser:
         if pv1_line:
             return parse_pv1(pv1_line, field_sep, comp_sep)
         
-        # PV1 is always optional, even in strict mode
         return None
 
     def _parse_ail_location(
-        self, 
-        lines: List[str], 
-        field_sep: str, 
-        comp_sep: str
+        self, lines: List[str], field_sep: str, comp_sep: str
     ) -> Optional[str]:
         """Parse AIL segment for location fallback."""
         ail_line = self._find_segment_line(lines, "AIL")
@@ -214,123 +407,3 @@ class HL7Parser:
             return ail_data.get("location")
         
         return None
-
-    def parse_messages(self, content: str) -> List[Appointment]:
-        """
-        Parse multiple messages from content.
-        
-        Args:
-            content: Raw content that may contain multiple HL7 messages
-            
-        Returns:
-            List of Appointment models
-            
-        Raises:
-            HL7ParseError: With message index prefix if any message fails
-        """
-        messages = self.split_messages(content)
-        appointments = []
-        
-        for index, message in enumerate(messages):
-            try:
-                appointment = self.parse_message(message)
-                appointments.append(appointment)
-            except HL7ParseError as error:
-                # Re-raise with message index for debugging
-                error_message = f"Message {index + 1}: {error}"
-                raise type(error)(error_message) from error
-        
-        return appointments
-
-    def parse_messages_safe(self, content: str) -> List[Dict[str, Any]]:
-        """
-        Parse multiple messages, collecting errors instead of failing.
-        
-        Useful for batch processing where you want to continue
-        even if some messages are invalid.
-        
-        Returns:
-            List of dicts with keys:
-            - success: True if parsed successfully
-            - appointment: Appointment model (if success)
-            - error: Error message (if failed)
-            - index: Message index (0-based)
-        """
-        messages = self.split_messages(content)
-        results = []
-        
-        for index, message in enumerate(messages):
-            try:
-                appointment = self.parse_message(message)
-                results.append({
-                    "success": True,
-                    "appointment": appointment,
-                    "index": index
-                })
-            except HL7ParseError as error:
-                results.append({
-                    "success": False,
-                    "error": str(error),
-                    "index": index
-                })
-        
-        return results
-
-    def split_messages(self, content: str) -> List[str]:
-        """
-        Split content into individual HL7 messages.
-        
-        Each message starts with "MSH" at the beginning of a line.
-        This uses structural HL7 rules, not regex pattern matching.
-        
-        Args:
-            content: Raw content that may contain multiple messages
-            
-        Returns:
-            List of individual message strings
-        """
-        if not content:
-            return []
-        
-        cleaned = content.strip()
-        if not cleaned:
-            return []
-        
-        # Normalize line endings
-        normalized = cleaned.replace("\r\n", "\n").replace("\r", "\n")
-        
-        messages = []
-        current_message_lines = []
-        
-        for line in normalized.split("\n"):
-            # Check if this line starts a new message
-            if line.startswith("MSH"):
-                # Save the previous message if we have one
-                if current_message_lines:
-                    message_text = "\n".join(current_message_lines)
-                    messages.append(message_text)
-                
-                # Start a new message
-                current_message_lines = [line]
-            elif current_message_lines:
-                # We're inside a message, add this line
-                current_message_lines.append(line)
-            # Ignore lines before the first MSH
-        
-        # Don't forget the last message
-        if current_message_lines:
-            message_text = "\n".join(current_message_lines)
-            messages.append(message_text)
-        
-        # Filter out empty messages
-        return [msg.strip() for msg in messages if msg.strip()]
-
-    def stream_messages(self, content: str) -> Iterator[Appointment]:
-        """
-        Generator that yields appointments one at a time.
-        
-        Useful for processing large files without loading
-        all appointments into memory.
-        """
-        for message in self.split_messages(content):
-            yield self.parse_message(message)

@@ -1,9 +1,9 @@
 """HL7 SIU Parser - Package API"""
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 
-# Public API - explicitly re-exported for external use
+# Public API
 from .models import Patient, Provider, Appointment, HL7MessageMetadata  # noqa: F401
-from .parser import HL7Parser  # noqa: F401
+from .parser import HL7Parser, ParseResult  # noqa: F401
 from .exceptions import (  # noqa: F401
     HL7ParseError,
     InvalidMessageTypeError,
@@ -15,7 +15,7 @@ from .exceptions import (  # noqa: F401
 
 __all__ = [
     "Patient", "Provider", "Appointment", "HL7MessageMetadata",
-    "HL7Parser",
+    "HL7Parser", "ParseResult",
     "HL7ParseError", "InvalidMessageTypeError", "MissingSegmentError",
     "MalformedSegmentError", "EmptyMessageError", "FileReadError",
 ]

@@ -1,44 +1,69 @@
 #!/usr/bin/env python3
-"""HL7 SIU Parser - Command Line Interface"""
+"""
+HL7 SIU Parser - Command Line Interface
+
+Fault-tolerant CLI that handles mixed HL7 feeds gracefully.
+"""
 import argparse
 import sys
 from .parser import HL7Parser
 from .io import read_hl7_file, write_json_output
-from .exceptions import HL7ParseError, FileReadError
+from .exceptions import FileReadError
 
 
 def main(args=None) -> int:
     parser = argparse.ArgumentParser(
         prog="hl7_parser",
-        description="Parse HL7 SIU S12 messages into structured JSON."
+        description="Parse HL7 SIU S12 messages into structured JSON.",
+        epilog="Non-SIU messages (ADT, ORU, etc.) are automatically skipped."
     )
     parser.add_argument("input", help="Path to HL7 file")
     parser.add_argument("-o", "--output", help="Output JSON file path")
-    parser.add_argument("-v", "--verbose", action="store_true", help="Verbose output")
-    parser.add_argument("--strict", action="store_true", help="Fail on missing segments")
-    parser.add_argument("--safe", action="store_true", help="Collect errors instead of failing")
+    parser.add_argument("-v", "--verbose", action="store_true", 
+                       help="Show details about skipped/failed messages")
+    parser.add_argument("--strict", action="store_true", 
+                       help="Fail on first error instead of skipping")
     opts = parser.parse_args(args)
 
     try:
         content = read_hl7_file(opts.input)
-        hl7 = HL7Parser(strict_mode=opts.strict)
-
-        if opts.safe:
-            results = hl7.parse_messages_safe(content)
-            appointments = [r["appointment"] for r in results if r["success"]]
-            if opts.verbose:
-                for r in results:
-                    if not r["success"]:
-                        print(f"Message {r['index']+1}: {r['error']}", file=sys.stderr)
+        hl7_parser = HL7Parser(strict_mode=False)
+        
+        if opts.strict:
+            # Strict mode: fail on first error
+            try:
+                appointments = hl7_parser.parse_messages_strict(content)
+            except Exception as e:
+                print(f"Error: {e}", file=sys.stderr)
+                return 1
         else:
-            appointments = hl7.parse_messages(content)
-
+            # Normal mode: fault-tolerant with optional reporting
+            result = hl7_parser.parse_messages_with_report(content)
+            appointments = result.appointments
+            
+            if opts.verbose:
+                # Report what happened
+                print(f"Processed: {result.total_processed} SIU appointments", file=sys.stderr)
+                
+                if result.skipped:
+                    print(f"Skipped: {result.total_skipped} non-SIU messages", file=sys.stderr)
+                    for skip in result.skipped:
+                        msg_type = skip.get("message_type", "unknown")
+                        print(f"  - Message {skip['message_number']}: {msg_type}", file=sys.stderr)
+                
+                if result.errors:
+                    print(f"Errors: {result.total_errors} messages failed", file=sys.stderr)
+                    for err in result.errors:
+                        print(f"  - Message {err['message_number']}: {err['error']}", file=sys.stderr)
+        
+        # Output results
         output = write_json_output(appointments, opts.output)
         if output:
             print(output)
+        
         return 0
 
-    except (FileReadError, HL7ParseError) as e:
+    except FileReadError as e:
         print(f"Error: {e}", file=sys.stderr)
         return 1
 
