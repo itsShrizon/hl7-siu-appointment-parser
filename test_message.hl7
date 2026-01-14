@@ -1,0 +1,39 @@
+MSH|^~&|SendingApp|SendingFac|ReceivingApp|ReceivingFac|20250114120000||ADT^A01|MSG00001|P|2.3
+EVN|A01|20250114120000
+PID|1||PAT001^^^MRN||Doe^John^""^Jr||19801332|M|||123 Main St^^Metropolis^NY^INVALID_ZIP||(555)555-5555
+PV1|1|I|200^Bed1^Room3||||1234^Smith^Jane^Dr.|||||||||||||||||||||||||||||||||||||20250114100000
+OBX|1|NM|GLU^Glucose||mg/dL|60-100|H|||F
+MSH|^~&|LAB_SYSTEM|HOSPITAL|||20230229000000||ORU^R01|MSG00002|T|2.5.1
+PID|||PAT002||Smith&Jones^Mary|||F
+ORC|RE|ORDER123^LAB
+OBR|1|ORDER123^LAB||METABOLIC_PANEL
+OBX|1|ST|NOTE||Patient complained of "dizziness" & nausea||||||F
+OBX|2|NM|K^Potassium||5.8.1|mmol/L|3.5-5.0|H|||F
+MSH|^~&|BAD_DELIM|TEST|RECV|TEST|20250101||ADT^A08|MSG00003|P|2.4
+EVN|A08|20250101
+PID|1||PAT003
+NK1|1|Doe^Jane|WIFE
+ZZZ|Custom segment data with an unescaped | pipe character inside text
+MSH|^~&|DATA_DUMP|TEST|||20250601||SIU^S12|MSG00004|P|2.4
+SCH|12345||||||ROUTINE|||202506011000^202506011030
+PID|1||PAT004||LongNameHereThatExceedsTypicalFieldLengthLimitsAndMightCauseBufferOverflowsInPoorlyWrittenParsersSoWeAreJustTypingKeepGoingToSeeIfItTruncatesOrCrashesTheSystemxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx||19900101|U
+PV1|1|O
+NTE|1||This note has a weird newline character here ->
+and continues on the next line breaking the segment structure.
+MSH|^~&|NON_STANDARD|TEST|RECV|TEST|2025||ADT^A04|MSG00005|D|2.4
+PID|1||PAT005||O'Connor^Tim||19750505|M
+IN1|1|MEDICARE|123456789
+GT1|1|1234|Doe^John||123 Main St
+ORC|NW|OrderWithNoOBR
+OBX|1|ED|Image||^Image data encoded in Base64 but truncated abruptly...
+MSH|^~&|FUTURE_DATE|TEST|||20991231235959||ADT^A03|MSG00006|P|2.6
+EVN|A03|20991231
+PID|1||PAT006
+PV1|1|I||||||||||||||||||||||||||||||||||||||||||20991230
+DG1|1||I10|Hypertension
+DG1|2|||Missing Code
+MSH|^~&|EMPTY_MSG|TEST|||||||
+MSH|^~&|UNICODE_TEST|TEST|||20250114||ADT^A01|MSG00008|P|2.4
+PID|1||PAT008||Namy^José||19800101|M|||Rue de l'Église 5^^Paris
+PV1|1|I
+OBX|1|ST|COMMENT||Temperature is 38°C||||||F
