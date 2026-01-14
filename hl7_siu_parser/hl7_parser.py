@@ -30,14 +30,14 @@ def main(args=None) -> int:
         hl7_parser = HL7Parser(strict_mode=False)
         
         if opts.strict:
-            # Strict mode: fail on first error
+            # Strict mode which fails on first error
             try:
                 appointments = hl7_parser.parse_messages_strict(content)
             except Exception as e:
                 print(f"Error: {e}", file=sys.stderr)
                 return 1
         else:
-            # Normal mode: fault-tolerant with optional reporting
+            # Normal mode which is more fault-tolerant with optional reporting
             result = hl7_parser.parse_messages_with_report(content)
             appointments = result.appointments
             
