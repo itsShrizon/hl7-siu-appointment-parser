@@ -2,12 +2,14 @@
 Batch Processor
 
 Handles processing multiple messages with fault tolerance and streaming.
+Uses the new industrial-strength StreamingParser for file operations.
 """
-from typing import List, Iterator
+from typing import List, Iterator, Optional, Callable
 from ..exceptions import HL7ParseError, InvalidMessageTypeError, EmptyMessageError
 from ..models import Appointment
 from .message_parser import MessageParser
 from .message_splitter import MessageSplitter
+from .streaming_parser import StreamingParser, StreamStats
 from .parse_result import ParseResult
 
 
@@ -19,7 +21,7 @@ class BatchProcessor:
     - Filters SIU^S12 messages from mixed feeds
     - Continues after encountering bad messages
     - Provides detailed reporting of skipped/failed messages
-    - Supports streaming for memory efficiency
+    - Supports streaming for any file size (2KB to 2GB+)
     """
 
     def __init__(self, parser: MessageParser, splitter: MessageSplitter):
@@ -32,6 +34,7 @@ class BatchProcessor:
         """
         self.parser = parser
         self.splitter = splitter
+        self._streaming_parser = StreamingParser(message_parser=parser)
 
     def process(self, content: str) -> List[Appointment]:
         """
@@ -108,48 +111,51 @@ class BatchProcessor:
 
     def stream(self, content: str) -> Iterator[Appointment]:
         """
-        Generator that yields appointments one at a time.
+        Generator that yields appointments from in-memory content.
         
         Silently skips non-SIU and malformed messages.
         """
-        for message in self.splitter.split(content):
-            try:
-                yield self.parser.parse(message)
-            except HL7ParseError:
-                continue
+        return self._streaming_parser.stream_content(content)
 
-    def stream_file(self, file_path: str, encoding: str = "utf-8") -> Iterator[Appointment]:
+    def stream_file(
+        self,
+        file_path: str,
+        encoding: str = "utf-8",
+        on_error: Optional[Callable[[int, str], None]] = None,
+    ) -> Iterator[Appointment]:
         """
         Generator that streams appointments from a file.
         
-        Uses line-by-line processing for memory efficiency.
+        Uses industrial-strength streaming:
+        - Constant memory regardless of file size
+        - 64KB chunked reading
+        - State machine for robust parsing
+        - Size limits to prevent OOM
+        
+        Args:
+            file_path: Path to the HL7 file
+            encoding: File encoding
+            on_error: Optional callback for errors (line_number, error_msg)
         """
-        current_message_lines = []
+        return self._streaming_parser.stream_file(file_path, encoding, on_error=on_error)
+    
+    def stream_file_with_stats(
+        self,
+        file_path: str,
+        encoding: str = "utf-8",
+    ) -> tuple[Iterator[Appointment], StreamStats]:
+        """
+        Stream file with statistics tracking.
         
-        with open(file_path, 'r', encoding=encoding) as file:
-            for line in file:
-                line = line.replace("\r\n", "\n").replace("\r", "\n").strip()
-                
-                if not line:
-                    continue
-                
-                if line.startswith("MSH") and self.splitter._is_valid_msh_start(line):
-                    if current_message_lines:
-                        message_content = "\n".join(current_message_lines)
-                        try:
-                            yield self.parser.parse(message_content)
-                        except HL7ParseError:
-                            pass
-                    
-                    current_message_lines = [line]
-                
-                elif current_message_lines:
-                    current_message_lines.append(line)
-        
-        # Last message
-        if current_message_lines:
-            message_content = "\n".join(current_message_lines)
-            try:
-                yield self.parser.parse(message_content)
-            except HL7ParseError:
-                pass
+        Returns:
+            Tuple of (appointment iterator, stats object)
+            
+        Example:
+            appointments, stats = processor.stream_file_with_stats("large.hl7")
+            for appt in appointments:
+                process(appt)
+            print(f"Parsed {stats.messages_parsed} messages")
+        """
+        stats = StreamStats()
+        iterator = self._streaming_parser.stream_file(file_path, encoding, stats=stats)
+        return iterator, stats
