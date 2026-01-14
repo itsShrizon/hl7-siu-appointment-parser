@@ -6,7 +6,7 @@ Fault-tolerant CLI that handles mixed HL7 feeds gracefully.
 """
 import argparse
 import sys
-from .parser import HL7Parser
+from .parser.hl7Parser import HL7Parser
 from .io import read_hl7_file, write_json_output
 from .exceptions import FileReadError
 
