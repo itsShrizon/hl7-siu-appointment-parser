@@ -309,8 +309,8 @@ class HL7Parser:
         
         Valid MSH structure:
         - Starts with exactly "MSH"
-        - Followed by field separator (usually |)
-        - Then encoding characters (usually ^~\&)
+        - Followed by field separator 
+        - Then encoding characters 
         - Minimum length check
         
         Returns:
@@ -319,19 +319,19 @@ class HL7Parser:
         if not line.startswith("MSH"):
             return False
         
-        # Minimum: "MSH|^~\&" = 8 characters
+        
         if len(line) < 8:
             return False
         
         # Character at index 3 should be the field separator
         field_sep = line[3]
         
-        # Field separator must be printable, non-alphanumeric, non-whitespace
+        # Field separator must be printable
         if field_sep.isalnum() or field_sep.isspace():
             return False
         
-        # Characters 4-7 should be encoding characters (^~\&)
-        # We just check they exist and aren't whitespace
+    
+        # checking they are not whitespace
         encoding_chars = line[4:8]
         if len(encoding_chars) < 4:
             return False
