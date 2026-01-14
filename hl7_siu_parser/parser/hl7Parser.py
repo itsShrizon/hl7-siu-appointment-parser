@@ -1,46 +1,14 @@
-"""
-HL7 SIU Parser - Core Parser
-
-Orchestrates parsing of HL7 SIU S12 messages.
-Designed for fault tolerance in real-world HL7 feeds with mixed message types.
-"""
 import sys
 from typing import List, Dict, Any, Optional
-from dataclasses import dataclass, field
-from .models import Appointment
-from .exceptions import (
+from ..exceptions import (
     HL7ParseError,
     InvalidMessageTypeError,
     MissingSegmentError,
     EmptyMessageError,
 )
-from .segments import parse_msh, parse_sch, parse_pid, parse_pv1, parse_ail
-
-
-@dataclass
-class ParseResult:
-    """
-    Result of parsing a batch of messages.
-    
-    Provides clear separation between successful parses, 
-    skipped messages, and actual errors.
-    """
-    appointments: List[Appointment] = field(default_factory=list)
-    skipped: List[Dict[str, Any]] = field(default_factory=list)  # Non-SIU messages
-    errors: List[Dict[str, Any]] = field(default_factory=list)   # Parse failures
-    
-    @property
-    def total_processed(self) -> int:
-        return len(self.appointments)
-    
-    @property
-    def total_skipped(self) -> int:
-        return len(self.skipped)
-    
-    @property
-    def total_errors(self) -> int:
-        return len(self.errors)
-
+from ..segments import parse_msh, parse_sch, parse_pid, parse_pv1, parse_ail
+from ..models import Appointment, Patient, Provider
+from .parse_result import ParseResult
 
 class HL7Parser:
     """
