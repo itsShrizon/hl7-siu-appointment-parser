@@ -4,7 +4,7 @@ HL7 Parser - Main Facade
 Simple, clean API that delegates to specialized components.
 """
 import os
-from typing import List, Iterator, Union
+from typing import List, Iterator
 from ..models import Appointment
 from .message_parser import MessageParser
 from .message_splitter import MessageSplitter

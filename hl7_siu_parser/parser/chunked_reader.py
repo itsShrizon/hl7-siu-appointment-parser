@@ -4,7 +4,7 @@ Chunked File Reader
 Memory-efficient file reading using fixed-size chunks.
 Handles line splitting across chunk boundaries.
 """
-from typing import Iterator, Optional
+from typing import Iterator
 from pathlib import Path
 
 # Default chunk size: 64KB is optimal for most file systems
