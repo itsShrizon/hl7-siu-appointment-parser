@@ -50,16 +50,21 @@ def main(args=None) -> int:
                     for skip in result.skipped:
                         msg_type = skip.get("message_type", "unknown")
                         print(f"  - Message {skip['message_number']}: {msg_type}", file=sys.stderr)
-                
-                if result.errors:
-                    print(f"Errors: {result.total_errors} messages failed", file=sys.stderr)
-                    for err in result.errors:
-                        print(f"  - Message {err['message_number']}: {err['error']}", file=sys.stderr)
+            
+            # Always report errors to stderr (fail loudly)
+            if result.errors:
+                print(f"Error: {result.total_errors} message(s) failed to parse", file=sys.stderr)
+                for err in result.errors:
+                    print(f"  - Message {err['message_number']}: {err['error']}", file=sys.stderr)
         
         # Output results
         output = write_json_output(appointments, opts.output)
         if output:
             print(output)
+        
+        # Fail loudly: return non-zero exit code if any errors occurred
+        if not opts.strict and result.errors:
+            return 1
         
         return 0
 
