@@ -1,0 +1,11 @@
+MSH|^~\&|SCHEDULING|HOSPITAL|RECEIVER|FAC|20250502130000||SIU^S12|MSG001|P|2.5
+EVN|S12|20250502130000
+SCH|12345|FILLER456||||Checkup^Routine Checkup|||||^^^20250502130000|||||||||||Room 101
+NTE|1||This is a note segment that should be ignored
+PID|||P12345||Doe^John^M||19850210|M
+AL1|1||Penicillin|Moderate
+OBX|1|ST|12345^Blood Pressure||120/80||||||F
+PV1||O|CLINIC||||D67890^Smith^Jane^Dr
+RGS|1||AppointmentGroup
+AIL|1||Room 101^Clinic A
+AIP|1||D67890^Smith^Jane^Dr

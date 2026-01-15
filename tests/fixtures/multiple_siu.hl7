@@ -1,0 +1,12 @@
+MSH|^~\&|APP|FAC|||20250502090000||SIU^S12|MSG001|P|2.5
+SCH|APT001|FILL001||||Morning Checkup^Checkup|||||^^^20250502090000|||||||||||Room 101
+PID|||P001||Smith^Alice||19900115|F
+PV1||O|CLINIC||||D001^Jones^Bob
+MSH|^~\&|APP|FAC|||20250502100000||SIU^S12|MSG002|P|2.5
+SCH|APT002|FILL002||||Consultation^Consult|||||^^^20250502100000|||||||||||Room 202
+PID|||P002||Johnson^Bob||19851220|M
+PV1||O|CLINIC||||D002^Williams^Sarah
+MSH|^~\&|APP|FAC|||20250502110000||SIU^S12|MSG003|P|2.5
+SCH|APT003|FILL003||||Follow-up^Follow-up Visit|||||^^^20250502110000|||||||||||Room 303
+PID|||P003||Davis^Carol||19750310|F
+PV1||O|CLINIC||||D003^Brown^Mike
