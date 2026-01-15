@@ -1,11 +1,9 @@
 """
 HL7 SIU Parser - Segment Handlers
 
-DEPRECATED: This file is maintained for backward compatibility.
-New code should import from hl7_siu_parser.segments module directly.
+Provides functions to parse individual HL7 SIU segments into structured data.
 
-Example:
-    from hl7_siu_parser.segments import parse_msh, parse_sch, parse_pid
+E
 """
 
 from .segments import parse_msh, parse_sch, parse_pid, parse_pv1, parse_ail
