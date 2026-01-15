@@ -53,6 +53,27 @@ python3 -m hl7_siu_parser.hl7_parser --strict test_message.hl7
 pytest -v
 ```
 
+### Python API
+
+```python
+from hl7_siu_parser import HL7Parser
+
+parser = HL7Parser()
+
+# Parse file (auto-streams for large files > 1MB)
+appointments = parser.parse_file("messages.hl7")
+
+# Parse single message
+appt = parser.parse_message(message_string)
+
+# Parse content string
+appointments = parser.parse_messages(content)
+
+# Stream explicitly (for maximum control)
+for appt in parser.stream_file("large.hl7"):
+    process(appt)
+```
+
 ## Design Architecture
 
 ### Core Design Patterns
@@ -91,17 +112,41 @@ pytest -v
 
 #### 4. Memory Management
 
-**Two Processing Models**
+**Three Processing Models**
 
-1. **Load-All** (`read_hl7_file()` + `parse_file()`):
+1. **Auto-Detect** (`parse_file()`):
+   - Automatically chooses strategy based on file size
+   - Files ≤ 1MB: loaded into memory (faster)
+   - Files > 1MB: streamed line-by-line (memory efficient)
+   - Best for: Most use cases (recommended)
+
+2. **Load-All** (`read_hl7_file()` + `parse_messages()`):
    - Loads entire file into memory
    - Best for: Small to medium files (<100MB)
    - Complexity: O(n) space
 
-2. **Streaming** (`stream_hl7_file()` + `stream_json_output()`):
+3. **Streaming** (`stream_file()`):
    - Line-by-line processing with message buffering
    - Best for: Large feeds (GB+), continuous feeds
    - Complexity: O(1) space (constant memory regardless of file size)
+
+**Configuring Auto-Detect Threshold**
+
+```python
+from hl7_siu_parser import HL7Parser
+
+# Default: 1MB threshold
+parser = HL7Parser()
+
+# Always stream (threshold = 0)
+parser = HL7Parser(stream_threshold=0)
+
+# Never auto-stream (threshold = -1)
+parser = HL7Parser(stream_threshold=-1)
+
+# Custom: stream files > 500KB
+parser = HL7Parser(stream_threshold=500 * 1024)
+```
 
 **Message Buffering**
 - Messages accumulated until MSH boundary detected
@@ -380,10 +425,21 @@ def parse_rgs(segment_str: str, separators: dict) -> dict:
 - `parser_state.py`: Track parsing state across operations
 
 **Key Features**:
+- **Auto-streaming**: `parse_file()` auto-detects large files and streams
 - Validates message type before parsing (rejects non-SIU messages)
 - MSH structural validation prevents false positives
 - Collects all errors without failing entire batch
 - Supports both load-all and streaming modes
+
+**API Overview**:
+
+| Method | Use Case | Memory |
+|--------|----------|--------|
+| `parse_file(path)` | Files (auto-detects size) | Auto |
+| `parse_file_with_report(path)` | Files with stats | Auto |
+| `parse_message(str)` | Single message | Low |
+| `parse_messages(str)` | Content string | Proportional |
+| `stream_file(path)` | Explicit streaming | Constant |
 
 **Extending**:
 To modify parsing logic:
