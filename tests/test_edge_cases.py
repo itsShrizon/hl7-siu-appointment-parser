@@ -4,8 +4,7 @@ from hl7_siu_parser import (
     HL7Parser,
     InvalidMessageTypeError,
     MissingSegmentError,
-    EmptyMessageError,
-    MalformedSegmentError,
+    EmptyMessageError
 )
 
 
